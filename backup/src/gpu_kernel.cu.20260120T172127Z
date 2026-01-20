@@ -1,0 +1,103 @@
+#include "gpu_worker.h"
+#include <cuda_runtime.h>
+#include <nvml.h>
+#include <iostream>
+
+struct GpuContext {
+    float* deviceData;
+    nvmlDevice_t nvmlDevice;
+    bool nvmlInitialized;
+};
+
+// CUDA kernel for heat generation
+__global__ void heatKernel( int iterations, float* output ) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    float value = 1.0f + idx * 0.0001f;
+    
+    // Intensive floating point computations
+    for ( int i = 0; i < iterations; ++i ) {
+        value = sinf( value ) * cosf( value );
+        value = sqrtf( fabsf( value ) + 1.0f );
+        value = fmaf( value, value, 1.0f );
+    };
+    
+    // Prevent optimization
+    if ( idx == 0 ) {
+        *output = value;
+    };
+};
+
+extern "C" {
+
+GpuContext* initGpu() {
+    GpuContext* ctx = new GpuContext();
+    ctx->nvmlInitialized = false;
+    
+    // Allocate device memory
+    cudaError_t err = cudaMalloc( &ctx->deviceData, sizeof( float ) );
+    if ( err != cudaSuccess ) {
+        std::cerr << "CUDA malloc failed: " << cudaGetErrorString( err ) << std::endl;
+        delete ctx;
+        return nullptr;
+    };
+    
+    // Initialize NVML for monitoring
+    if ( nvmlInit() == NVML_SUCCESS ) {
+        if ( nvmlDeviceGetHandleByIndex( 0, &ctx->nvmlDevice ) == NVML_SUCCESS ) {
+            ctx->nvmlInitialized = true;
+        } else {
+            std::cerr << "NVML: Failed to get device handle" << std::endl;
+        };
+    } else {
+        std::cerr << "NVML: Initialization failed" << std::endl;
+    };
+    
+    return ctx;
+};
+
+void cleanupGpu( GpuContext* ctx ) {
+    if ( !ctx ) return;
+    
+    if ( ctx->deviceData ) {
+        cudaFree( ctx->deviceData );
+    };
+    
+    if ( ctx->nvmlInitialized ) {
+        nvmlShutdown();
+    };
+    
+    delete ctx;
+};
+
+void launchGpuKernel( GpuContext* ctx, int gridSize, int blockSize, int iterations ) {
+    if ( !ctx || !ctx->deviceData ) return;
+    
+    heatKernel<<<gridSize, blockSize>>>( iterations, ctx->deviceData );
+    cudaDeviceSynchronize();
+};
+
+double queryGpuLoad() {
+    static nvmlDevice_t device;
+    static bool initialized = false;
+    
+    if ( !initialized ) {
+        if ( nvmlInit() == NVML_SUCCESS ) {
+            if ( nvmlDeviceGetHandleByIndex( 0, &device ) == NVML_SUCCESS ) {
+                initialized = true;
+            };
+        };
+    };
+    
+    if ( !initialized ) {
+        return 0.0;
+    };
+    
+    nvmlUtilization_t utilization;
+    if ( nvmlDeviceGetUtilizationRates( device, &utilization ) == NVML_SUCCESS ) {
+        return utilization.gpu / 100.0;
+    };
+    
+    return 0.0;
+};
+
+}

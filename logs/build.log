@@ -1,0 +1,6 @@
+make: Entering directory '/ARCHIVE/Programming/busywork'
+g++ -std=c++17 -pthread -O3 -Wall -Wextra -DENABLE_CUDA -I/usr/local/cuda/include -c -o build/main.o src/main.cpp
+nvcc -O3 -std=c++14 -ccbin /usr/bin/gcc-12 -Xcudafe --diag_suppress=20011 -Xcudafe --diag_suppress=20014 -c -o build/gpu_kernel.o src/gpu_kernel.cu
+g++ -std=c++17 -pthread -O3 -Wall -Wextra -DENABLE_CUDA -I/usr/local/cuda/include -o busywork build/main.o build/gpu_kernel.o -L/usr/local/cuda/lib64 -lcudart -lnvidia-ml -lpthread -lm
+Built with CUDA support
+make: Leaving directory '/ARCHIVE/Programming/busywork'
