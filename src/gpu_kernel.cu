@@ -19,6 +19,8 @@ extern "C" {
     void launchGpuKernel( GpuContext* ctx, int gridSize, int blockSize, int iterations );
     double queryGpuLoad();
     int queryGpuCoreCount();
+    double queryGpuPowerWatts();
+    double queryGpuTemperature();
 }
 
 struct GpuContext {
@@ -87,7 +89,7 @@ void launchGpuKernel( GpuContext* ctx, int gridSize, int blockSize, int iteratio
     cudaDeviceSynchronize();
 };
 
-double queryGpuLoad() {
+static bool getNvmlDevice( nvmlDevice_t* dev, int* smCountOut ) {
     static nvmlDevice_t device;
     static bool initialized = false;
     static int smCount = 0;
@@ -96,12 +98,10 @@ double queryGpuLoad() {
         if ( nvmlInit() == NVML_SUCCESS ) {
             if ( nvmlDeviceGetHandleByIndex( 0, &device ) == NVML_SUCCESS ) {
                 initialized = true;
-                // Get SM count
                 unsigned int count = 0;
                 if ( nvmlDeviceGetNumGpuCores( device, &count ) == NVML_SUCCESS ) {
                     smCount = static_cast<int>( count );
                 } else {
-                    // Fallback: try to get SM count via different method
                     int devId;
                     cudaGetDevice( &devId );
                     cudaDeviceProp prop;
@@ -112,7 +112,16 @@ double queryGpuLoad() {
         };
     };
     
-    if ( !initialized || smCount == 0 ) {
+    if ( !initialized ) return false;
+    if ( dev ) *dev = device;
+    if ( smCountOut ) *smCountOut = smCount;
+    return true;
+}
+
+double queryGpuLoad() {
+    nvmlDevice_t device;
+    int smCount = 0;
+    if ( !getNvmlDevice( &device, &smCount ) || smCount == 0 ) {
         return 0.0;
     };
     
@@ -125,34 +134,52 @@ double queryGpuLoad() {
     return 0.0;
 };
 
+double queryGpuPowerWatts() {
+    nvmlDevice_t device;
+    if ( !getNvmlDevice( &device, nullptr ) ) {
+        return 0.0;
+    };
+    
+    unsigned int powerMilliWatts = 0;
+    if ( nvmlDeviceGetPowerUsage( device, &powerMilliWatts ) == NVML_SUCCESS ) {
+        return static_cast<double>( powerMilliWatts ) / 1000.0;
+    };
+    
+    return 0.0;
+};
+
+double queryGpuTemperature() {
+    nvmlDevice_t device;
+    if ( !getNvmlDevice( &device, nullptr ) ) {
+        return 0.0;
+    };
+    
+    unsigned int tempC = 0;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    if ( nvmlDeviceGetTemperature( device, NVML_TEMPERATURE_GPU, &tempC ) == NVML_SUCCESS ) {
+        return static_cast<double>( tempC );
+    };
+#pragma GCC diagnostic pop
+    
+    return 0.0;
+};
+
 int queryGpuCoreCount() {
     nvmlDevice_t device;
-    
-    if ( nvmlInit() != NVML_SUCCESS ) {
-        return 0;
-    };
-    
-    if ( nvmlDeviceGetHandleByIndex( 0, &device ) != NVML_SUCCESS ) {
-        nvmlShutdown();
-        return 0;
-    };
-    
-    // Try NVML first (may not support NumGpuCores on all devices)
-    unsigned int coreCount = 0;
-    if ( nvmlDeviceGetNumGpuCores( device, &coreCount ) == NVML_SUCCESS ) {
-        nvmlShutdown();
-        return static_cast<int>( coreCount );
+    int smCount = 0;
+    if ( getNvmlDevice( &device, &smCount ) ) {
+        return smCount;
     };
     
     // Fallback: use CUDA runtime to get multiprocessor count
     int devId;
-    cudaGetDevice( &devId );
-    cudaDeviceProp prop;
-    if ( cudaGetDeviceProperties( &prop, devId ) == cudaSuccess ) {
-        nvmlShutdown();
-        return prop.multiProcessorCount;
+    if ( cudaGetDevice( &devId ) == cudaSuccess ) {
+        cudaDeviceProp prop;
+        if ( cudaGetDeviceProperties( &prop, devId ) == cudaSuccess ) {
+            return prop.multiProcessorCount;
+        };
     };
     
-    nvmlShutdown();
     return 0;
 };

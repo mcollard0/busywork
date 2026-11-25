@@ -24,6 +24,12 @@ double queryGpuLoad();
 // Query number of GPU multiprocessors (SMs)
 int queryGpuCoreCount();
 
+// Query current GPU power in Watts
+double queryGpuPowerWatts();
+
+// Query current GPU temperature in Celsius
+double queryGpuTemperature();
+
 #ifdef __cplusplus
 }
 #endif
