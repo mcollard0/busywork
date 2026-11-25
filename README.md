@@ -34,6 +34,7 @@ The application follows a multi-threaded producer-consumer pattern with monitori
 2. **Monitor Thread**: Periodically samples system load and adjusts worker activity
 3. **CPU Worker Threads**: Execute intensive mathematical computations (N-1 cores by default)
 4. **GPU Worker Threads**: Launch CUDA kernels with duty cycle control (configurable count)
+5. **AMD Vulkan Workers**: Automatically launch one compute worker for every detected AMD Vulkan device with a compute queue
 
 ### Key Components
 
@@ -56,6 +57,13 @@ Per-GPU-worker state structure:
 - Device memory allocation for kernel output
 - NVML device handle for load queries
 - Initialization status tracking
+
+#### AMD Vulkan Context
+Per-device AMD compute state:
+- Enumerates every Vulkan physical device and selects AMD devices with a compute queue, regardless of device index
+- Creates an independent Vulkan device, queue, descriptor set, storage buffer, pipeline, and command buffer per AMD GPU
+- Dispatches a SPIR-V compute shader with the same bounded floating-point workload pattern used by the CUDA backend
+- Falls back per device: an unavailable AMD device does not disable CPU or CUDA workloads
 
 ### Control Algorithms
 
@@ -82,14 +90,18 @@ Continuous per-worker loop:
 
 The GPU duty cycle ranges from 0.0 (idle) to 1.0 (continuous work), controlling the work/sleep ratio.
 
+#### AMD Vulkan Control
+AMD Vulkan workers are automatic when eligible devices are found. They start at a continuous duty cycle because RADV does not expose an NVML-equivalent utilization API to this application. `--gpugoal` applies only to CUDA/NVML workers; AMD status reports device name, worker activity, and duty cycle rather than a hardware-utilization percentage.
+
 ## Build System
 
 The Makefile implements conditional compilation:
 - **CUDA Detection**: Checks for `/usr/local/cuda` directory
 - **CPU-Only Build**: Always produces `busywork` executable
 - **CUDA Build**: Conditionally includes GPU kernel compilation if CUDA toolkit present
+- **Vulkan Build**: Conditionally includes AMD compute workers and SPIR-V shader compilation when Vulkan and `glslc` are available
 - **Flags**: `-O3` optimization, `-std=c++17` for main, `-std=c++14` for CUDA
-- **Libraries**: pthread, math (always); cudart, nvidia-ml (when CUDA enabled)
+- **Libraries**: pthread, math (always); cudart and nvidia-ml (when CUDA enabled); Vulkan loader (when Vulkan enabled)
 
 ## Usage Patterns
 
@@ -107,12 +119,16 @@ The Makefile implements conditional compilation:
 
 # Multiple GPU worker threads
 ./busywork --gputhreads 4 --gpugoal 1.5
+
+# Disable automatic AMD Vulkan workers
+./busywork --no-amd-gpu
 ```
 
 **Parameter Notes**:
 - `--cpugoal`: Load goal measured as "number of threads worth" (float, typically 1.0 to `cpu_count`)
 - `--gpugoal`: GPU load goal in SM-equivalent units (float, typically 0.0 to `sm_count`)
 - `--gputhreads`: Number of host threads launching GPU work (integer, default 1)
+- `--no-amd-gpu`: Disable automatic Vulkan workers for all detected AMD compute-capable GPUs
 
 ### Shutdown
 Press Enter to initiate graceful shutdown. All worker threads are joined before exit.
@@ -123,6 +139,7 @@ Press Enter to initiate graceful shutdown. All worker threads are joined before 
 1. **CPU Testing**: Run with `--cpugoal 0.5`, monitor with `htop` or `mpstat 5` to verify ~50% utilization
 2. **GPU Testing**: Run `--gpugoal 0.8 --gputhreads 2`, monitor with `nvidia-smi -l 1` or `nvtop`
 3. **Dynamic Adjustment**: Start with low goal, observe thread activation in status output
+4. **AMD Vulkan Testing**: Run normally, confirm each detected AMD Vulkan worker is listed at startup, then use `--no-amd-gpu` to verify the opt-out path
 
 ### No Automated Tests
 The project currently lacks unit/integration tests. Testing is performed via:
@@ -145,7 +162,7 @@ The project currently lacks unit/integration tests. Testing is performed via:
 8. **Scheduled Operation**: Time-based activation profiles (e.g., "warm office 8-10am weekdays")
 
 ### Low Priority / Experimental
-9. **AMD GPU Support**: ROCm/HIP implementation parallel to CUDA
+9. **Additional AMD GPU Backends**: Optional ROCm/HIP support beyond the built-in Vulkan backend
 10. **Intel GPU Support**: Level Zero or OpenCL backend
 11. **Distributed Heating**: Network coordination of multiple machines
 12. **Machine Learning Workloads**: Replace synthetic math with real ML inference for dual-purpose heating

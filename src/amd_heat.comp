@@ -1,0 +1,24 @@
+#version 450
+
+layout( local_size_x = 256 ) in;
+
+layout( set = 0, binding = 0, std430 ) buffer Output {
+    float values[];
+} outputBuffer;
+
+layout( push_constant ) uniform WorkParameters {
+    uint iterations;
+} work;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    float value = 1.0 + float( index ) * 0.0001;
+
+    for ( uint i = 0; i < work.iterations; ++i ) {
+        value = sin( value ) * cos( value );
+        value = sqrt( abs( value ) + 1.0 );
+        value = fma( value, value, 1.0 );
+    }
+
+    outputBuffer.values[index] = value;
+}

@@ -1,0 +1,28 @@
+=== System Capabilities ===
+CPU Threads: 32
+GPU Available: Yes
+GPU Multiprocessors (SMs): 6144
+AMD Vulkan GPUs: 1
+  - AMD Ryzen 9 9950X3D 16-Core Processor (RADV RAPHAEL_MENDOCINO) (physical device 1)
+
+=== Current Configuration ===
+CPU Goal: 0.1 threads
+GPU Goal: 6143 (duty units)
+GPU Worker Threads: 0
+=========================
+
+Starting workload...
+Started 31 CPU worker threads
+GPU workers: Disabled (no GPU available)
+Started 1 AMD Vulkan GPU worker threads
+Press Enter to stop...
+[Status]
+  CPU Load: 31.508 / Goal: 0.1 threads | Active Workers: 30/31
+  GPU Load: 122.88 / Goal: 6143 | Duty Cycle: 1
+  AMD Vulkan GPU: AMD Ryzen 9 9950X3D 16-Core Processor (RADV RAPHAEL_MENDOCINO) | Active: Yes | Duty Cycle: 1
+---
+[Status]
+  CPU Load: 23.6777 / Goal: 0.1 threads | Active Workers: 29/31
+  GPU Load: 122.88 / Goal: 6143 | Duty Cycle: 1
+  AMD Vulkan GPU: AMD Ryzen 9 9950X3D 16-Core Processor (RADV RAPHAEL_MENDOCINO) | Active: No | Duty Cycle: 1
+---

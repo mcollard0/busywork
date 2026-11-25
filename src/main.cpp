@@ -6,10 +6,15 @@
 #include <cmath>
 #include <getopt.h>
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 #ifdef ENABLE_CUDA
 #include "gpu_worker.h"
+#endif
+
+#ifdef ENABLE_VULKAN
+#include "amd_vulkan_worker.h"
 #endif
 
 class CpuMonitor {
@@ -63,6 +68,19 @@ private:
     std::thread monitorThread;
     std::vector<std::thread> gpuThreads;
     std::atomic<double> gpuDutyCycle{ 1.0 };
+
+#ifdef ENABLE_VULKAN
+    struct AmdGpuWorker {
+        explicit AmdGpuWorker( AmdVulkanDevice selectedDevice ) : device( std::move( selectedDevice ) ) {};
+        AmdVulkanDevice device;
+        std::atomic<bool> active{ false };
+        std::atomic<double> dutyCycle{ 1.0 };
+    };
+    std::vector<std::thread> amdGpuThreads;
+    std::vector<AmdVulkanDevice> amdGpuDevices;
+    std::vector<std::unique_ptr<AmdGpuWorker>> amdGpuWorkers;
+    bool amdGpuEnabled = false;
+#endif
     
     int cpuCount;
     int gpuThreadCount;
@@ -165,6 +183,14 @@ private:
             std::cout << "  GPU Load: " << gpuLoad << " / Goal: " << gpuGoal.load() 
                       << " | Duty Cycle: " << gpuDutyCycle.load() << std::endl;
         };
+
+#ifdef ENABLE_VULKAN
+        for ( const auto& worker : amdGpuWorkers ) {
+            std::cout << "  AMD Vulkan GPU: " << worker->device.name
+                      << " | Active: " << ( worker->active ? "Yes" : "No" )
+                      << " | Duty Cycle: " << worker->dutyCycle.load() << std::endl;
+        };
+#endif
         
         std::cout << "---" << std::endl;
     };
@@ -198,7 +224,7 @@ private:
                 std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
             };
         };
-        
+
         cleanupGpu( ctx );
     };
     
@@ -206,9 +232,47 @@ private:
         return queryGpuLoad();
     };
 #endif
-    
+
+#ifdef ENABLE_VULKAN
+    void amdGpuWorker( AmdGpuWorker* worker ) {
+        AmdVulkanContext* context = initAmdVulkan( worker->device.physicalDeviceIndex );
+        if ( !context ) {
+            std::cerr << "Failed to initialize AMD Vulkan GPU: " << worker->device.name << std::endl;
+            return;
+        };
+
+        const int blockSize = 256;
+        const int gridSize = 1024;
+        const int iterations = 100000;
+        worker->active = true;
+
+        while ( running ) {
+            double duty = worker->dutyCycle.load();
+
+            if ( duty > 0.01 ) {
+                if ( !launchAmdVulkanKernel( context, gridSize, blockSize, iterations ) ) {
+                    std::cerr << "AMD Vulkan GPU worker stopped after a failed dispatch: " << worker->device.name << std::endl;
+                    break;
+                };
+
+                if ( duty < 0.99 ) {
+                    int sleepMs = static_cast<int>( 50.0 * ( 1.0 - duty ) );
+                    if ( sleepMs > 0 ) {
+                        std::this_thread::sleep_for( std::chrono::milliseconds( sleepMs ) );
+                    };
+                };
+            } else {
+                std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+            };
+        };
+
+        worker->active = false;
+        cleanupAmdVulkan( context );
+    };
+#endif
+
 public:
-    BusyWork( double cpuGoalThreads, double gpuGoalThreads, int gpuThreads = 1 ) 
+    BusyWork( double cpuGoalThreads, double gpuGoalThreads, int gpuThreads = 1, bool enableAmdGpu = true )
         : cpuMonitor( std::thread::hardware_concurrency() ) {
         cpuCount = std::thread::hardware_concurrency();
         gpuThreadCount = gpuThreads;
@@ -233,6 +297,15 @@ public:
             cleanupGpu( testCtx );
         };
 #endif
+
+#ifdef ENABLE_VULKAN
+        amdGpuEnabled = enableAmdGpu;
+        if ( amdGpuEnabled ) {
+            amdGpuDevices = enumerateAmdVulkanDevices();
+        };
+#else
+        ( void )enableAmdGpu;
+#endif
         
         // GPU goal is "number of SMs worth of load"
         if ( gpuGoalThreads > 0 ) {
@@ -254,6 +327,17 @@ public:
         } else {
             std::cout << "GPU Available: No" << std::endl;
         };
+
+#ifdef ENABLE_VULKAN
+        if ( amdGpuEnabled ) {
+            std::cout << "AMD Vulkan GPUs: " << amdGpuDevices.size() << std::endl;
+            for ( const auto& device : amdGpuDevices ) {
+                std::cout << "  - " << device.name << " (physical device " << device.physicalDeviceIndex << ")" << std::endl;
+            };
+        } else {
+            std::cout << "AMD Vulkan GPUs: Disabled" << std::endl;
+        };
+#endif
         
         std::cout << "\n=== Current Configuration ===" << std::endl;
         std::cout << "CPU Goal: " << cpuGoal.load() << " threads" << std::endl;
@@ -290,6 +374,18 @@ public:
         } else {
             std::cout << "GPU workers: Disabled (no GPU available)" << std::endl;
         };
+
+#ifdef ENABLE_VULKAN
+        if ( amdGpuEnabled ) {
+            for ( const auto& device : amdGpuDevices ) {
+                amdGpuWorkers.push_back( std::make_unique<AmdGpuWorker>( device ) );
+                amdGpuThreads.emplace_back( &BusyWork::amdGpuWorker, this, amdGpuWorkers.back().get() );
+            };
+            if ( !amdGpuThreads.empty() ) {
+                std::cout << "Started " << amdGpuThreads.size() << " AMD Vulkan GPU worker threads" << std::endl;
+            };
+        };
+#endif
         
         // Start monitor thread
         monitorThread = std::thread( &BusyWork::monitor, this );
@@ -309,6 +405,14 @@ public:
                 thread.join();
             };
         };
+
+#ifdef ENABLE_VULKAN
+        for ( auto& thread : amdGpuThreads ) {
+            if ( thread.joinable() ) {
+                thread.join();
+            };
+        };
+#endif
         
         if ( monitorThread.joinable() ) {
             monitorThread.join();
@@ -329,6 +433,7 @@ void printUsage( const char* programName ) {
     std::cout << "  --cpugoal N          CPU load goal in threads (default: cpucount-1)" << std::endl;
     std::cout << "  --gpugoal N          GPU load goal in SMs/cores (default: smcount-1)" << std::endl;
     std::cout << "  --gputhreads N       Number of GPU worker threads (default: 1)" << std::endl;
+    std::cout << "  --no-amd-gpu         Disable automatic AMD Vulkan compute workers" << std::endl;
     std::cout << "  -h, --help           Show this help message" << std::endl;
     std::cout << "\nRun without arguments to see system capabilities." << std::endl;
 };
@@ -337,11 +442,13 @@ int main( int argc, char* argv[] ) {
     double cpuGoal = -1.0;  // -1 means use default
     double gpuGoal = -1.0;  // -1 means use default
     int gpuThreads = 1;
+    bool enableAmdGpu = true;
     
     static struct option longOptions[] = {
         { "cpugoal", required_argument, 0, 'c' },
         { "gpugoal", required_argument, 0, 'g' },
         { "gputhreads", required_argument, 0, 't' },
+        { "no-amd-gpu", no_argument, 0, 'a' },
         { "help", no_argument, 0, 'h' },
         { 0, 0, 0, 0 }
     };
@@ -360,6 +467,9 @@ int main( int argc, char* argv[] ) {
             case 't':
                 gpuThreads = std::stoi( optarg );
                 break;
+            case 'a':
+                enableAmdGpu = false;
+                break;
             case 'h':
                 printUsage( argv[0] );
                 return 0;
@@ -369,7 +479,7 @@ int main( int argc, char* argv[] ) {
         };
     };
     
-    BusyWork busy( cpuGoal, gpuGoal, gpuThreads );
+    BusyWork busy( cpuGoal, gpuGoal, gpuThreads, enableAmdGpu );
     busy.start();
     busy.waitForSignal();
     
