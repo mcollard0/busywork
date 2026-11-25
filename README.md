@@ -77,7 +77,7 @@ flowchart TD
         RoutineAMD -.-> MonitorLoop
 
         MonitorLoop --> SampleMetrics["Sample Load, Power & Temperatures<br/>(CPU, NVIDIA NVML, AMD hwmon)"]
-        SampleMetrics --> CheckThermal{"Any Temp >= Max Cap?<br/>(Default: 85.0°C / 185.0°F)"}
+        SampleMetrics --> CheckThermal{"Any Temp >= Max Cap?<br/>(Default: 90.0°C / 194.0°F)"}
         CheckThermal -- "Yes" --> EmitWarning["Emit [THERMAL WARNING] Alerts<br/>Display temps in °C and °F"]
         CheckThermal -- "No" --> CalcScores["Calculate Heat-per-Watt Scores<br/>CPU threads/W, GPU SMs/W, Thermodynamic BTU/Wh"]
         EmitWarning --> CalcScores
@@ -185,7 +185,7 @@ The Makefile implements conditional compilation:
 # Disable automatic AMD Vulkan workers
 ./busywork --no-amd-gpu
 
-# Set max temperature warning cap in °C (default: 85.0°C)
+# Set max temperature warning cap in °C (default: 90.0°C)
 ./busywork --max-temp 80.0
 ```
 
@@ -194,7 +194,7 @@ The Makefile implements conditional compilation:
 - `--gpugoal`: GPU load goal in SM-equivalent units (float, typically 0.0 to `sm_count`)
 - `--gputhreads`: Number of host threads launching GPU work (integer, default 1)
 - `--no-amd-gpu`: Disable automatic Vulkan workers for all detected AMD compute-capable GPUs
-- `-m`, `--max-temp`: Maximum temperature threshold in °C before thermal warnings are triggered (float, default 85.0)
+- `-m`, `--max-temp`: Maximum temperature threshold in °C before thermal warnings are triggered (float, default 90.0)
 
 ### Real-Time Status & Energy Efficiency Metrics
 
@@ -202,11 +202,11 @@ Every 5 seconds during execution, Busywork samples system utilization, temperatu
 
 ```text
 [Status]
-  CPU Load: 32.0 / Goal: 31.0 threads | Active Workers: 30/31 | Temp: 85.5°C (185.9°F) | Power: 144.0 W (est.)
+  CPU Load: 32.0 / Goal: 31.0 threads | Active Workers: 30/31 | Temp: 91.2°C (196.2°F) | Power: 144.0 W (est.)
   GPU Load: 6144.0 / Goal: 6143.0 | Duty Cycle: 0.95 | Temp: 62.0°C (143.6°F) | Power: 176.3 W
   AMD Vulkan GPU: AMD Ryzen 9 9950X3D ... | Active: Yes | Duty Cycle: 1.00 | Temp: 47.0°C (116.6°F) | Power: 0.2 W
   >>> [THERMAL WARNING] Hardware temperature cap exceeded! <<<
-  >>> [WARNING] CPU temperature 85.5°C (185.9°F) exceeded cap (85.0°C (185.0°F))!
+  >>> [WARNING] CPU temperature 91.2°C (196.2°F) exceeded cap (90.0°C (194.0°F))!
   [Energy Efficiency & Heat Metrics]
     Total Thermal Power: 320.5 W (1093.5 BTU/h heat output)
     CPU Heat/Watt: 0.222 threads/W | Efficiency Score: 100.0/100

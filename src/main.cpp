@@ -361,7 +361,7 @@ private:
     bool gpuAvailable;
     CpuMonitor cpuMonitor;
     EnergyMonitor energyMonitor;
-    double maxTempCap = 85.0;
+    double maxTempCap = 90.0;
     
     // CPU intensive work
     void cpuWork( int threadId, std::atomic<bool>* active ) {
@@ -631,8 +631,8 @@ private:
 #endif
 
 public:
-    BusyWork( double cpuGoalThreads, double gpuGoalThreads, int gpuThreads = 1, bool enableAmdGpu = true, double maxTemp = 85.0 )
-        : cpuMonitor( std::thread::hardware_concurrency() ), maxTempCap( maxTemp > 0.0 ? maxTemp : 85.0 ) {
+    BusyWork( double cpuGoalThreads, double gpuGoalThreads, int gpuThreads = 1, bool enableAmdGpu = true, double maxTemp = 90.0 )
+        : cpuMonitor( std::thread::hardware_concurrency() ), maxTempCap( maxTemp > 0.0 ? maxTemp : 90.0 ) {
         cpuCount = std::thread::hardware_concurrency();
         gpuThreadCount = gpuThreads;
         
@@ -795,7 +795,7 @@ void printUsage( const char* programName ) {
     std::cout << "  --gpugoal N          GPU load goal in SMs/cores (default: smcount-1)" << std::endl;
     std::cout << "  --gputhreads N       Number of GPU worker threads (default: 1)" << std::endl;
     std::cout << "  --no-amd-gpu         Disable automatic AMD Vulkan compute workers" << std::endl;
-    std::cout << "  -m, --max-temp N     Max temperature cap in °C before warnings (default: 85.0)" << std::endl;
+    std::cout << "  -m, --max-temp N     Max temperature cap in °C before warnings (default: 90.0)" << std::endl;
     std::cout << "  -h, --help           Show this help message" << std::endl;
     std::cout << "\nRun without arguments to see system capabilities." << std::endl;
 };
@@ -805,7 +805,7 @@ int main( int argc, char* argv[] ) {
     double gpuGoal = -1.0;  // -1 means use default
     int gpuThreads = 1;
     bool enableAmdGpu = true;
-    double maxTemp = 85.0;
+    double maxTemp = 90.0;
     
     static struct option longOptions[] = {
         { "cpugoal", required_argument, 0, 'c' },
